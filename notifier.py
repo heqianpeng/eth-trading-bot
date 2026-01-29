@@ -109,8 +109,12 @@ class Notifier:
         except Exception as e:
             logger.error(f"微信发送异常: {e}")
             
-    async def _send_email(self, signal: TradeSignal, message: str):
-        """发送邮件通知"""
+    async def _send_email(self, subject_or_signal, body_or_message: str = None):
+        """发送邮件通知
+        支持两种调用方式：
+        1. _send_email(signal, message) - 传入信号对象
+        2. _send_email(subject, body) - 直接传入标题和内容
+        """
         try:
             import aiosmtplib
             from email.mime.text import MIMEText
@@ -124,28 +128,36 @@ class Notifier:
             msg = MIMEMultipart()
             msg['From'] = config['username']
             msg['To'] = config['to_address']
-            msg['Subject'] = f"[{hostname}] ETH交易信号: {signal.signal_type.value} - 强度{signal.strength}"
             
-            # HTML格式邮件
-            html = f"""
-            <html>
-            <body style="font-family: Arial, sans-serif;">
-            <h2>{'🟢' if '买' in signal.signal_type.value else '🔴'} ETH/USDT 交易信号</h2>
-            <table style="border-collapse: collapse; width: 100%;">
-                <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>信号类型</b></td><td style="padding: 8px; border: 1px solid #ddd;">{signal.signal_type.value}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>信号强度</b></td><td style="padding: 8px; border: 1px solid #ddd;">{signal.strength}/100</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>当前价格</b></td><td style="padding: 8px; border: 1px solid #ddd;">${signal.price:.2f}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>止损价位</b></td><td style="padding: 8px; border: 1px solid #ddd;">${signal.stop_loss:.2f}</td></tr>
-                <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>止盈价位</b></td><td style="padding: 8px; border: 1px solid #ddd;">${signal.take_profit:.2f}</td></tr>
-            </table>
-            <h3>信号依据:</h3>
-            <ul>
-            {''.join(f'<li>{r}</li>' for r in signal.reasons[:10])}
-            </ul>
-            <p style="color: red;"><b>⚠️ 风险提示: 此为系统自动分析，仅供参考！</b></p>
-            </body>
-            </html>
-            """
+            # 判断调用方式
+            if hasattr(subject_or_signal, 'signal_type'):
+                # 传入的是signal对象
+                signal = subject_or_signal
+                msg['Subject'] = f"[{hostname[:4]}] ETH交易信号: {signal.signal_type.value} 强度{signal.strength}"
+                
+                html = f"""
+                <html>
+                <body style="font-family: Arial, sans-serif;">
+                <h2>{'🟢' if '买' in signal.signal_type.value else '🔴'} ETH/USDT 交易信号</h2>
+                <table style="border-collapse: collapse; width: 100%;">
+                    <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>信号类型</b></td><td style="padding: 8px; border: 1px solid #ddd;">{signal.signal_type.value}</td></tr>
+                    <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>信号强度</b></td><td style="padding: 8px; border: 1px solid #ddd;">{signal.strength}/100</td></tr>
+                    <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>当前价格</b></td><td style="padding: 8px; border: 1px solid #ddd;">${signal.price:.2f}</td></tr>
+                    <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>止损价位</b></td><td style="padding: 8px; border: 1px solid #ddd;">${signal.stop_loss:.2f}</td></tr>
+                    <tr><td style="padding: 8px; border: 1px solid #ddd;"><b>止盈价位</b></td><td style="padding: 8px; border: 1px solid #ddd;">${signal.take_profit:.2f}</td></tr>
+                </table>
+                <h3>信号依据:</h3>
+                <ul>
+                {''.join(f'<li>{r}</li>' for r in signal.reasons[:10])}
+                </ul>
+                <p style="color: red;"><b>⚠️ 风险提示: 此为系统自动分析，仅供参考！</b></p>
+                </body>
+                </html>
+                """
+            else:
+                # 传入的是subject和body
+                msg['Subject'] = f"[{hostname[:4]}] {subject_or_signal}"
+                html = body_or_message
             
             msg.attach(MIMEText(html, 'html'))
             
@@ -204,7 +216,7 @@ class Notifier:
             msg = MIMEText(f"🔔 ETH交易信号系统测试\n\n系统已成功启动，邮件通知功能正常！\n\n服务器: {hostname}\n\n当出现交易信号时，您将收到邮件通知。", 'plain', 'utf-8')
             msg['From'] = config['username']
             msg['To'] = config['to_address']
-            msg['Subject'] = f"[{hostname}] ETH交易信号系统 - 测试邮件"
+            msg['Subject'] = f"[{hostname[:4]}] ETH交易信号系统 - 测试邮件"
             
             # QQ邮箱使用SSL端口465
             if config.get('use_ssl', False) or config['smtp_port'] == 465:

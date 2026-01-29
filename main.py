@@ -13,20 +13,43 @@ from data_fetcher import DataFetcher
 from indicators import TechnicalIndicators
 from strategy import TradingStrategy, SignalType
 from strategy_overnight import OvernightStrategy
+from strategy_trend import TrendStrategy
+from strategy_breakout import BreakoutStrategy
+from strategy_combo import ComboStrategy
 from notifier import Notifier
 
 
 # 策略映射
+# 回测结果(40天, 20x杠杆, 10%仓位):
+# - trend: +43.67%收益, 44.9%胜率, 2.21盈亏比, -5.79%回撤 ⭐最高收益
+# - combo: +26.15%收益, 51.6%胜率, 2.28盈亏比, -5.77%回撤 ⭐高胜率
+# - overnight: +12.91%收益, 47.8%胜率, 1.25盈亏比, -12.73%回撤
+# - breakout: 震荡市表现不佳，慎用
 STRATEGIES = {
-    'v5': {
-        'class': TradingStrategy,
-        'name': '优化版V5策略',
-        'desc': '全天候多维度技术分析，自适应趋势/震荡市场'
+    'trend': {
+        'class': TrendStrategy,
+        'name': '趋势跟踪策略V3(20x杠杆优化)',
+        'desc': '⭐推荐 | 收益+43.7%, 回撤-5.8%, 盈亏比2.21 | EMA+ADX趋势跟踪'
+    },
+    'combo': {
+        'class': ComboStrategy,
+        'name': '多策略组合V2(20x杠杆优化)',
+        'desc': '⭐高胜率 | 收益+26%, 胜率51.6%, 盈亏比2.28 | 自动切换趋势/震荡'
     },
     'overnight': {
         'class': OvernightStrategy,
         'name': '均值回归策略(20x杠杆优化)',
-        'desc': '全天候运行，止损0.8倍ATR，止盈1倍ATR，建议10-20%仓位'
+        'desc': '收益+12.91%, 回撤-12.73%, 盈亏比1.25 | RSI超买超卖均值回归'
+    },
+    'breakout': {
+        'class': BreakoutStrategy,
+        'name': '突破策略V2(20x杠杆优化)',
+        'desc': '⚠️震荡市慎用 | 需强趋势+放量 | 布林带+成交量突破'
+    },
+    'v5': {
+        'class': TradingStrategy,
+        'name': '优化版V5策略',
+        'desc': '全天候多维度技术分析，自适应趋势/震荡市场'
     }
 }
 
@@ -203,8 +226,8 @@ async def main():
     
     parser = argparse.ArgumentParser(description='ETH/USDT 交易信号系统')
     parser.add_argument('-c', '--config', default='config.yaml', help='配置文件路径')
-    parser.add_argument('-s', '--strategy', default='v5', choices=['v5', 'overnight'],
-                        help='策略类型: v5=优化版V5策略, overnight=隔夜策略')
+    parser.add_argument('-s', '--strategy', default='trend', choices=['trend', 'combo', 'breakout', 'v5', 'overnight'],
+                        help='策略类型: trend=趋势跟踪(推荐), combo=多策略组合, breakout=突破, v5=V5, overnight=均值回归')
     parser.add_argument('--test', action='store_true', help='发送测试通知')
     args = parser.parse_args()
     

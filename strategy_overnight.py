@@ -58,15 +58,11 @@ class OvernightStrategy:
         if not indicators or 'price' not in indicators:
             return None
         
-        # 全天候运行（移除时段限制）
-        # if not is_overnight_session():
-        #     return None
-        
         price = indicators['price']
         atr = indicators.get('atr', price * 0.01)
         atr_pct = atr / price * 100
         
-        # 隔夜时段波动较小，过滤极端波动
+        # 过滤极端波动
         if atr_pct > 3 or atr_pct < 0.2:
             return None
         
@@ -75,7 +71,6 @@ class OvernightStrategy:
         structure = self._market_structure(indicators)
         momentum = self._momentum_signal(indicators)
         
-        # 隔夜策略侧重均值回归
         total_score = mean_rev['score'] * 0.5 + structure['score'] * 0.3 + momentum['score'] * 0.2
         
         reasons = ["📊 均值回归策略"]
@@ -204,56 +199,71 @@ class OvernightStrategy:
         
         # MACD
         macd_hist = ind.get('macd_hist', 0)
-        macd_hist_prev = ind.get('macd_hist_prev', macd_hist)
-        
-        # MACD柱状图方向变化更重要
-        if macd_hist > 0 and macd_hist > macd_hist_prev:
-            score += 20
-            reasons.append("MACD动能增强")
-        elif macd_hist > 0:
-            score += 10
-        elif macd_hist < 0 and macd_hist < macd_hist_prev:
-            score -= 20
-            reasons.append("MACD动能减弱")
-        else:
-            score -= 10
-            
-        # 成交量确认
-        vol_ratio = ind.get('volume_ratio', 1)
-        if vol_ratio > 2:
+        if macd_hist > 0:
             score += 15
-            reasons.append(f"放量{vol_ratio:.1f}x")
-        elif vol_ratio > 1.5:
+        else:
+            score -= 15
+            
+        # 成交量
+        vol_ratio = ind.get('volume_ratio', 1)
+        if vol_ratio > 1.5:
             score += 10
-        elif vol_ratio < 0.5:
+        elif vol_ratio < 0.6:
             score -= 10
             
-        return {'score': max(-35, min(35, score)), 'reasons': reasons}
+        return {'score': max(-30, min(30, score)), 'reasons': reasons}
     
-    def _trend_filter(self, ind: dict) -> dict:
-        """趋势过滤器：避免在强趋势中逆势交易"""
+    def _get_trend(self, ind: dict) -> str:
+        """判断当前趋势"""
         price = ind['price']
         ma20 = ind.get('ma_20', price)
         ma50 = ind.get('ma_50', price)
         ema9 = ind.get('ema_9', price)
         ema21 = ind.get('ema_21', price)
-        adx = ind.get('adx', 20)
         
-        allow_long = True
-        allow_short = True
-        reasons = []
+        up_signals = 0
+        down_signals = 0
         
-        # 强下跌趋势中不做多
-        if adx > 30 and ma20 < ma50 * 0.98 and price < ema21:
-            allow_long = False
-            reasons.append("⚠️ 强下跌趋势")
+        if price > ma20: up_signals += 1
+        else: down_signals += 1
         
-        # 强上涨趋势中不做空
-        if adx > 30 and ma20 > ma50 * 1.02 and price > ema21:
-            allow_short = False
-            reasons.append("⚠️ 强上涨趋势")
+        if price > ma50: up_signals += 1
+        else: down_signals += 1
         
-        return {'allow_long': allow_long, 'allow_short': allow_short, 'reasons': reasons}
+        if ema9 > ema21: up_signals += 1
+        else: down_signals += 1
+        
+        if ma20 > ma50: up_signals += 1
+        else: down_signals += 1
+        
+        if up_signals >= 3:
+            return 'up'
+        elif down_signals >= 3:
+            return 'down'
+        return 'neutral'
+    
+    def _count_confirmations(self, ind: dict, score: float) -> int:
+        """计算确认信号数量 - 更严格"""
+        confirmations = 0
+        
+        rsi = ind.get('rsi', 50)
+        bb_pband = ind.get('bb_pband', 0.5)
+        k = ind.get('stoch_k', 50)
+        d = ind.get('stoch_d', 50)
+        macd_hist = ind.get('macd_hist', 0)
+        
+        if score > 0:  # 做多信号
+            if rsi < 35: confirmations += 1  # RSI超卖
+            if bb_pband < 0.2: confirmations += 1  # 接近布林下轨
+            if k < 25 and k > d: confirmations += 1  # 随机指标超卖金叉
+            if macd_hist > 0: confirmations += 1  # MACD多头
+        else:  # 做空信号
+            if rsi > 65: confirmations += 1  # RSI超买
+            if bb_pband > 0.8: confirmations += 1  # 接近布林上轨
+            if k > 75 and k < d: confirmations += 1  # 随机指标超买死叉
+            if macd_hist < 0: confirmations += 1  # MACD空头
+        
+        return confirmations
         
     def _get_signal_type(self, score: float) -> SignalType:
         if score >= 50:
