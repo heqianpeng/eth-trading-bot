@@ -53,7 +53,7 @@ indicators:
 # 策略参数
 strategy:
   # 信号强度阈值 (0-100)
-  signal_threshold: 25
+  signal_threshold: 50
   
   # 止盈止损比例
   take_profit_ratio: 0.022
@@ -64,7 +64,7 @@ strategy:
   atr_profit_multiplier: 2.2
   
   # 最小信号间隔（分钟）
-  min_signal_interval: 30
+  min_signal_interval: 1
 
 # 消息推送配置
 notifications:

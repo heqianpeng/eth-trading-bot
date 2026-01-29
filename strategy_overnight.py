@@ -53,6 +53,11 @@ class OvernightStrategy:
     def __init__(self, config: dict):
         self.config = config.get('strategy', {})
         self.ind_config = config.get('indicators', {})
+        # 优化后的参数
+        self.rsi_oversold = 30
+        self.rsi_overbought = 75
+        self.sl_mult = 0.8
+        self.tp_mult = 1.5
         
     def analyze(self, indicators: Dict[str, Any], timeframe: str) -> Optional[TradeSignal]:
         if not indicators or 'price' not in indicators:
@@ -78,7 +83,7 @@ class OvernightStrategy:
         reasons.extend(structure['reasons'])
         reasons.extend(momentum['reasons'])
         
-        # 20倍杠杆：信号阈值50
+        # 信号阈值50
         threshold = self.config.get('signal_threshold', 50)
         if abs(total_score) < threshold:
             return None
@@ -103,22 +108,22 @@ class OvernightStrategy:
         )
     
     def _mean_reversion_signal(self, ind: dict) -> dict:
-        """均值回归信号 - 隔夜时段核心策略"""
+        """均值回归信号 - 优化版"""
         score = 0
         reasons = []
         
-        # RSI
+        # RSI（优化参数：30/75）
         rsi = ind.get('rsi', 50)
-        if rsi < 25:
+        if rsi < self.rsi_oversold:
             score += 45
             reasons.append(f"RSI={rsi:.0f} 深度超卖")
-        elif rsi < 35:
+        elif rsi < self.rsi_oversold + 10:
             score += 30
             reasons.append(f"RSI={rsi:.0f} 超卖")
-        elif rsi > 75:
+        elif rsi > self.rsi_overbought:
             score -= 45
             reasons.append(f"RSI={rsi:.0f} 深度超买")
-        elif rsi > 65:
+        elif rsi > self.rsi_overbought - 10:
             score -= 30
             reasons.append(f"RSI={rsi:.0f} 超买")
             
@@ -288,9 +293,9 @@ class OvernightStrategy:
         bb_upper = ind.get('bb_upper', price + atr * 2)
         bb_middle = ind.get('bb_middle', price)
         
-        # 默认止损止盈（基于ATR）
-        default_sl_dist = atr * 0.8
-        default_tp_dist = atr * 1.0
+        # 默认止损止盈（优化参数：0.8ATR止损，1.5ATR止盈）
+        default_sl_dist = atr * self.sl_mult
+        default_tp_dist = atr * self.tp_mult
         
         if score > 0:  # 做多
             # 止损：取支撑位和ATR止损中更近的

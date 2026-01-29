@@ -50,7 +50,7 @@ class MultiStrategyBot:
         
         # 初始化选中的策略
         self.strategies = {}
-        strategy_list = strategies or ['trend', 'combo', 'overnight']
+        strategy_list = strategies or ['trend', 'combo']
         
         for key in strategy_list:
             if key in STRATEGIES:
@@ -63,6 +63,7 @@ class MultiStrategyBot:
                 }
         
         self.running = False
+        self.startup_delay = True  # 启动延迟标志，避免启动时发送大量邮件
         
     def _load_config(self, path: str) -> dict:
         config_file = Path(path)
@@ -110,6 +111,10 @@ class MultiStrategyBot:
         try:
             while self.running:
                 await self._analyze_cycle()
+                # 第一次分析后关闭启动延迟
+                if self.startup_delay:
+                    self.startup_delay = False
+                    logger.info("首次分析完成，后续将正常发送信号")
                 await asyncio.sleep(interval)
         except KeyboardInterrupt:
             logger.info("收到停止信号")
@@ -169,8 +174,11 @@ class MultiStrategyBot:
                     logger.info(f"[{timeframe}] {emoji} {strategy_name} 发现信号: {signal.signal_type.value}")
                     self._print_signal(signal, strategy_name)
                     
-                    # 发送带策略名称的通知
-                    await self._send_strategy_signal(signal, ticker, strategy_name, emoji)
+                    # 启动时只记录不发送，避免邮件轰炸
+                    if self.startup_delay:
+                        logger.info(f"[启动中] 跳过发送邮件，等待下一周期")
+                    else:
+                        await self._send_strategy_signal(signal, ticker, strategy_name, emoji)
                     
                     strategy_info['last_signal_time'][timeframe] = datetime.now()
                     
@@ -257,7 +265,7 @@ async def main():
     parser = argparse.ArgumentParser(description='ETH/USDT 多策略并行交易信号系统')
     parser.add_argument('-c', '--config', default='config.yaml', help='配置文件路径')
     parser.add_argument('-s', '--strategies', nargs='+', 
-                        default=['trend', 'combo', 'overnight'],
+                        default=['trend', 'combo'],
                         choices=['trend', 'combo', 'overnight'],
                         help='要运行的策略列表')
     parser.add_argument('--test', action='store_true', help='发送测试通知')
