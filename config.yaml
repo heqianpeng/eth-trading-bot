@@ -1,0 +1,97 @@
+# ETH/USDT 交易信号系统配置
+
+# 交易所配置
+exchange:
+  name: gateio
+  # 如果只需要公开数据，可以不填API密钥
+  api_key: ""
+  api_secret: ""
+
+# 交易对配置
+trading:
+  symbol: ETH/USDT
+  timeframes:
+    - 1m
+    - 5m
+    - 15m
+    - 1h
+    - 4h
+  # 数据获取间隔（秒）
+  fetch_interval: 10
+
+# 技术指标参数
+indicators:
+  # 移动平均线周期
+  ma_periods: [5, 10, 20, 50, 200]
+  ema_periods: [9, 21, 55]
+  
+  # RSI
+  rsi_period: 14
+  rsi_overbought: 70
+  rsi_oversold: 30
+  
+  # MACD
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  
+  # 布林带
+  bb_period: 20
+  bb_std: 2
+  
+  # ATR
+  atr_period: 14
+  
+  # Stochastic
+  stoch_k: 14
+  stoch_d: 3
+  stoch_smooth: 3
+  
+  # ADX
+  adx_period: 14
+
+# 策略参数
+strategy:
+  # 信号强度阈值 (0-100)
+  signal_threshold: 25
+  
+  # 止盈止损比例
+  take_profit_ratio: 0.022
+  stop_loss_ratio: 0.018
+  
+  # ATR倍数止损
+  atr_stop_multiplier: 1.8
+  atr_profit_multiplier: 2.2
+  
+  # 最小信号间隔（分钟）
+  min_signal_interval: 30
+
+# 消息推送配置
+notifications:
+  # Telegram
+  telegram:
+    enabled: false
+    bot_token: "YOUR_BOT_TOKEN"
+    chat_id: "YOUR_CHAT_ID"
+  
+  # 微信（通过Server酱）
+  wechat:
+    enabled: false
+    sendkey: "YOUR_SENDKEY"
+  
+  # 邮件
+  email:
+    enabled: true
+    smtp_server: "smtp.qq.com"
+    smtp_port: 465
+    use_ssl: true
+    username: "623048000@qq.com"
+    password: "lecnpqldkpkrbfge"
+    to_address: "623048000@qq.com"
+
+# 日志配置
+logging:
+  level: INFO
+  file: logs/trading.log
+  rotation: "1 day"
+  retention: "7 days"
