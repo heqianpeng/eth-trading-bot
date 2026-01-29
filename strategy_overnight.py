@@ -83,7 +83,7 @@ class OvernightStrategy:
         reasons.extend(structure['reasons'])
         reasons.extend(momentum['reasons'])
         
-        # 20倍杠杆：提高信号阈值到50，只做最高确定性交易
+        # 20倍杠杆：信号阈值50
         threshold = self.config.get('signal_threshold', 50)
         if abs(total_score) < threshold:
             return None
@@ -92,14 +92,8 @@ class OvernightStrategy:
         if signal_type == SignalType.NEUTRAL:
             return None
         
-        # 20倍杠杆优化：更窄止损防爆仓
-        # 止损0.8倍ATR（约0.8-1%），止盈1倍ATR
-        if total_score > 0:
-            stop_loss = price - atr * 0.8
-            take_profit = price + atr * 1.0
-        else:
-            stop_loss = price + atr * 0.8
-            take_profit = price - atr * 1.0
+        # 动态止盈止损：根据市场结构设置更精准的点位
+        stop_loss, take_profit = self._calculate_dynamic_levels(indicators, total_score, price, atr)
             
         return TradeSignal(
             signal_type=signal_type,
@@ -210,19 +204,56 @@ class OvernightStrategy:
         
         # MACD
         macd_hist = ind.get('macd_hist', 0)
-        if macd_hist > 0:
-            score += 15
-        else:
-            score -= 15
-            
-        # 成交量
-        vol_ratio = ind.get('volume_ratio', 1)
-        if vol_ratio > 1.5:
+        macd_hist_prev = ind.get('macd_hist_prev', macd_hist)
+        
+        # MACD柱状图方向变化更重要
+        if macd_hist > 0 and macd_hist > macd_hist_prev:
+            score += 20
+            reasons.append("MACD动能增强")
+        elif macd_hist > 0:
             score += 10
-        elif vol_ratio < 0.6:
+        elif macd_hist < 0 and macd_hist < macd_hist_prev:
+            score -= 20
+            reasons.append("MACD动能减弱")
+        else:
             score -= 10
             
-        return {'score': max(-30, min(30, score)), 'reasons': reasons}
+        # 成交量确认
+        vol_ratio = ind.get('volume_ratio', 1)
+        if vol_ratio > 2:
+            score += 15
+            reasons.append(f"放量{vol_ratio:.1f}x")
+        elif vol_ratio > 1.5:
+            score += 10
+        elif vol_ratio < 0.5:
+            score -= 10
+            
+        return {'score': max(-35, min(35, score)), 'reasons': reasons}
+    
+    def _trend_filter(self, ind: dict) -> dict:
+        """趋势过滤器：避免在强趋势中逆势交易"""
+        price = ind['price']
+        ma20 = ind.get('ma_20', price)
+        ma50 = ind.get('ma_50', price)
+        ema9 = ind.get('ema_9', price)
+        ema21 = ind.get('ema_21', price)
+        adx = ind.get('adx', 20)
+        
+        allow_long = True
+        allow_short = True
+        reasons = []
+        
+        # 强下跌趋势中不做多
+        if adx > 30 and ma20 < ma50 * 0.98 and price < ema21:
+            allow_long = False
+            reasons.append("⚠️ 强下跌趋势")
+        
+        # 强上涨趋势中不做空
+        if adx > 30 and ma20 > ma50 * 1.02 and price > ema21:
+            allow_short = False
+            reasons.append("⚠️ 强上涨趋势")
+        
+        return {'allow_long': allow_long, 'allow_short': allow_short, 'reasons': reasons}
         
     def _get_signal_type(self, score: float) -> SignalType:
         if score >= 50:
@@ -234,3 +265,71 @@ class OvernightStrategy:
         elif score <= -30:
             return SignalType.SELL
         return SignalType.NEUTRAL
+    
+    def _calculate_dynamic_levels(self, ind: dict, score: float, price: float, atr: float) -> tuple:
+        """动态计算止盈止损点位，基于支撑阻力和波动率"""
+        
+        # 获取关键价位
+        s1 = ind.get('s1', 0)
+        s2 = ind.get('s2', 0)
+        r1 = ind.get('r1', 0)
+        r2 = ind.get('r2', 0)
+        bb_lower = ind.get('bb_lower', price - atr * 2)
+        bb_upper = ind.get('bb_upper', price + atr * 2)
+        bb_middle = ind.get('bb_middle', price)
+        
+        # 默认止损止盈（基于ATR）
+        default_sl_dist = atr * 0.8
+        default_tp_dist = atr * 1.0
+        
+        if score > 0:  # 做多
+            # 止损：取支撑位和ATR止损中更近的
+            sl_candidates = [price - default_sl_dist]
+            if s1 > 0 and s1 < price:
+                sl_candidates.append(s1 - atr * 0.1)  # 支撑位下方一点
+            if bb_lower > 0 and bb_lower < price:
+                sl_candidates.append(bb_lower - atr * 0.1)
+            
+            # 选择最近的止损（但不能太近）
+            valid_sls = [sl for sl in sl_candidates if price - sl >= atr * 0.5]
+            stop_loss = max(valid_sls) if valid_sls else price - default_sl_dist
+            
+            # 止盈：取阻力位和ATR止盈中更近的
+            tp_candidates = [price + default_tp_dist]
+            if r1 > 0 and r1 > price:
+                tp_candidates.append(r1 - atr * 0.05)  # 阻力位下方一点
+            if bb_middle > price:
+                tp_candidates.append(bb_middle)
+            if bb_upper > price:
+                tp_candidates.append(bb_upper - atr * 0.1)
+            
+            # 选择最近的止盈（但要保证盈亏比）
+            min_tp = price + (price - stop_loss) * 1.0  # 至少1:1盈亏比
+            valid_tps = [tp for tp in tp_candidates if tp >= min_tp]
+            take_profit = min(valid_tps) if valid_tps else price + default_tp_dist
+            
+        else:  # 做空
+            # 止损：取阻力位和ATR止损中更近的
+            sl_candidates = [price + default_sl_dist]
+            if r1 > 0 and r1 > price:
+                sl_candidates.append(r1 + atr * 0.1)  # 阻力位上方一点
+            if bb_upper > 0 and bb_upper > price:
+                sl_candidates.append(bb_upper + atr * 0.1)
+            
+            valid_sls = [sl for sl in sl_candidates if sl - price >= atr * 0.5]
+            stop_loss = min(valid_sls) if valid_sls else price + default_sl_dist
+            
+            # 止盈：取支撑位和ATR止盈中更近的
+            tp_candidates = [price - default_tp_dist]
+            if s1 > 0 and s1 < price:
+                tp_candidates.append(s1 + atr * 0.05)  # 支撑位上方一点
+            if bb_middle < price:
+                tp_candidates.append(bb_middle)
+            if bb_lower < price:
+                tp_candidates.append(bb_lower + atr * 0.1)
+            
+            min_tp = price - (stop_loss - price) * 1.0  # 至少1:1盈亏比
+            valid_tps = [tp for tp in tp_candidates if tp <= min_tp]
+            take_profit = max(valid_tps) if valid_tps else price - default_tp_dist
+        
+        return round(stop_loss, 2), round(take_profit, 2)

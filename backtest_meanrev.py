@@ -37,7 +37,7 @@ async def backtest(days: int = 40):
     initial_capital = 10000
     capital = initial_capital
     leverage = 20  # 20倍杠杆
-    position_size = 0.2  # 每次只用20%仓位
+    position_size = 0.10  # 每次只用10%仓位
     
     for i in range(50, len(df)):
         current_bar = df.iloc[i]
