@@ -1,0 +1,25 @@
+# 数据获取
+ccxt>=4.0.0
+websockets>=12.0
+aiohttp>=3.9.0
+
+# 数据处理
+pandas>=2.0.0
+numpy>=1.24.0
+ta>=0.11.0
+
+# 配置管理
+pyyaml>=6.0
+
+# 消息推送
+python-telegram-bot>=20.0
+requests>=2.31.0
+
+# 邮件
+aiosmtplib>=3.0.0
+
+# 日志
+loguru>=0.7.0
+
+# 异步
+asyncio-throttle>=1.0.0
