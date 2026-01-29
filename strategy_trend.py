@@ -41,7 +41,7 @@ class TrendStrategy:
         self.config = config.get('strategy', {})
         # 优化后的参数
         self.adx_threshold = 28
-        self.entry_threshold = 50
+        self.entry_threshold = 60
         self.sl_mult = 0.8
         self.tp_mult = 2.2
         self.rsi_pullback_low = 25

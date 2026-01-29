@@ -42,7 +42,7 @@ class ComboStrategy:
         # 优化后的参数
         self.adx_trend = 28      # ADX趋势阈值
         self.adx_range = 18      # ADX震荡阈值
-        self.entry_threshold = 50
+        self.entry_threshold = 60
         self.trend_sl = 0.9
         self.trend_tp = 2.0
         self.range_sl = 0.8
