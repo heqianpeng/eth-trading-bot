@@ -16,6 +16,7 @@ from strategy import SignalType
 from strategy_trend import TrendStrategy
 from strategy_combo import ComboStrategy
 from strategy_overnight import OvernightStrategy
+from market_detector import MarketDetector
 from notifier import Notifier
 
 
@@ -47,6 +48,8 @@ class MultiStrategyBot:
         self.fetcher = DataFetcher(self.config)
         self.indicators = TechnicalIndicators(self.config)
         self.notifier = Notifier(self.config)
+        self.market_detector = MarketDetector(self.config)
+        self.last_alert_time = {}  # 市场异常提醒的时间记录
         
         # 初始化选中的策略
         self.strategies = {}
@@ -150,6 +153,9 @@ class MultiStrategyBot:
             if not indicators:
                 return
             
+            # 市场异常检测
+            await self._check_market_alerts(df, timeframe, ticker)
+            
             # 对每个策略进行分析
             for strategy_key, strategy_info in self.strategies.items():
                 await self._analyze_with_strategy(
@@ -159,6 +165,84 @@ class MultiStrategyBot:
                 
         except Exception as e:
             logger.error(f"[{timeframe}] 分析异常: {e}")
+    
+    async def _check_market_alerts(self, df, timeframe: str, ticker: dict):
+        """检测市场异常并发送提醒"""
+        try:
+            # 只在15m和1h周期检测，避免太多提醒
+            if timeframe not in ['15m', '1h']:
+                return
+            
+            alerts = self.market_detector.detect_all(df, timeframe)
+            
+            for alert in alerts:
+                alert_key = f"{alert.alert_type}_{alert.direction}_{timeframe}"
+                
+                # 检查是否需要发送（同类型提醒5分钟内只发一次）
+                if alert_key in self.last_alert_time:
+                    elapsed = datetime.now() - self.last_alert_time[alert_key]
+                    if elapsed < timedelta(minutes=5):
+                        continue
+                
+                logger.warning(f"[{timeframe}] {alert.message}")
+                logger.info(f"  详情: {alert.details}")
+                
+                if not self.startup_delay:
+                    await self._send_market_alert(alert, ticker)
+                
+                self.last_alert_time[alert_key] = datetime.now()
+                
+        except Exception as e:
+            logger.error(f"市场检测异常: {e}")
+    
+    async def _send_market_alert(self, alert, ticker: dict):
+        """发送市场异常提醒"""
+        price = ticker['price']
+        change = ticker.get('change_24h', 0)
+        
+        # 根据类型选择颜色和emoji
+        if alert.direction == 'up':
+            color = '#00C853'
+            emoji = '🚀' if alert.severity == 'danger' else '📈'
+        else:
+            color = '#FF1744'
+            emoji = '🌊' if alert.severity == 'danger' else '📉'
+        
+        subject = f"{emoji}【市场异常】{alert.message} ${price:.0f}"
+        
+        details_html = ''.join(f'<li><strong>{k}:</strong> {v}</li>' 
+                               for k, v in alert.details.items())
+        
+        body = f"""
+<html>
+<body style="font-family: Arial, sans-serif; padding: 20px;">
+<h2 style="color: {color};">
+    {emoji} {alert.message}
+</h2>
+
+<div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 10px 0;">
+    <h3>📊 行情信息</h3>
+    <p><strong>当前价格:</strong> ${price:.2f}</p>
+    <p><strong>24h涨跌:</strong> {change:+.2f}%</p>
+    <p><strong>严重程度:</strong> {'⚠️ 危险' if alert.severity == 'danger' else '⚡ 警告'}</p>
+</div>
+
+<div style="background: {'#ffebee' if alert.direction == 'down' else '#e8f5e9'}; padding: 15px; border-radius: 8px; margin: 10px 0;">
+    <h3>📝 详细信息</h3>
+    <ul>
+        {details_html}
+    </ul>
+</div>
+
+<p style="color: #666; font-size: 12px; margin-top: 20px;">
+    检测类型: {alert.alert_type} | 时间: {alert.timestamp}
+</p>
+</body>
+</html>
+"""
+        
+        await self.notifier._send_email(subject, body)
+        logger.info(f"市场异常提醒已发送: {alert.message}")
     
     async def _analyze_with_strategy(self, strategy_key, strategy_info, 
                                       indicators, timeframe, ticker):
