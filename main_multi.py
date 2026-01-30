@@ -169,19 +169,17 @@ class MultiStrategyBot:
     async def _check_market_alerts(self, df, timeframe: str, ticker: dict):
         """检测市场异常并发送提醒"""
         try:
-            # 只在15m和1h周期检测，避免太多提醒
-            if timeframe not in ['15m', '1h']:
-                return
-            
+            # 所有周期都检测（和策略一致）
             alerts = self.market_detector.detect_all(df, timeframe)
             
             for alert in alerts:
                 alert_key = f"{alert.alert_type}_{alert.direction}_{timeframe}"
                 
-                # 检查是否需要发送（同类型提醒5分钟内只发一次）
+                # 检查是否需要发送（使用和策略相同的间隔）
+                min_interval = self.config['strategy']['min_signal_interval']
                 if alert_key in self.last_alert_time:
                     elapsed = datetime.now() - self.last_alert_time[alert_key]
-                    if elapsed < timedelta(minutes=5):
+                    if elapsed < timedelta(minutes=min_interval):
                         continue
                 
                 logger.warning(f"[{timeframe}] {alert.message}")
