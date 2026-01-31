@@ -1,6 +1,6 @@
 """
-多策略组合V3 - 防爆仓优化版
-根据市场状态自动切换策略，增加波动率过滤
+多策略组合V2 - 根据市场状态自动切换策略
+优化版：只在明确趋势或极端超买超卖时交易
 """
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
@@ -31,25 +31,24 @@ class TradeSignal:
 
 class ComboStrategy:
     """
-    多策略组合V3 - 防爆仓优化版：
-    - 放宽止损：1.2ATR（原0.9ATR）
-    - 波动率过滤：ATR>3%不开仓
-    - 更严格的入场条件
+    多策略组合V2：
+    - 趋势市场(ADX>28)：趋势跟踪策略，等待回调入场
+    - 震荡市场(ADX<18)：均值回归策略，只做极端超买超卖
+    - 中性市场：不交易
     """
     
     def __init__(self, config: dict):
         self.config = config.get('strategy', {})
-        # 防爆仓优化参数
-        self.adx_trend = 30      # 提高ADX趋势阈值
-        self.adx_range = 18
+        # 优化后的参数
+        self.adx_trend = 28      # ADX趋势阈值
+        self.adx_range = 18      # ADX震荡阈值
         self.entry_threshold = 60
-        self.trend_sl = 1.2      # 放宽止损
+        self.trend_sl = 0.9
         self.trend_tp = 2.0
-        self.range_sl = 1.0
-        self.range_tp = 1.2
+        self.range_sl = 0.8
+        self.range_tp = 1.0
         self.rsi_oversold = 25
         self.rsi_overbought = 75
-        self.max_atr_pct = 3.0   # 最大ATR波动率
         
     def analyze(self, indicators: Dict[str, Any], timeframe: str) -> Optional[TradeSignal]:
         if not indicators or 'price' not in indicators:
@@ -59,10 +58,7 @@ class ComboStrategy:
         atr = indicators.get('atr', price * 0.01)
         atr_pct = atr / price * 100
         
-        # 波动率过滤
-        if atr_pct > self.max_atr_pct:
-            return None  # 高波动不开仓
-        if atr_pct < 0.3:
+        if atr_pct > 4 or atr_pct < 0.2:
             return None
         
         # 1. 识别市场状态
@@ -86,8 +82,7 @@ class ComboStrategy:
             return None
         
         total_score = signal['score']
-        reasons = [f"🔄 多策略组合V3"]
-        reasons.append(f"ATR={atr_pct:.1f}%")
+        reasons = [f"🔄 多策略组合V2"]
         reasons.append(f"{strategy_name}")
         reasons.extend(signal['reasons'])
         
@@ -128,7 +123,7 @@ class ComboStrategy:
         return 'neutral'
     
     def _trend_signal(self, ind: dict) -> dict:
-        """趋势跟踪信号 - 只做顺势回调，更严格"""
+        """趋势跟踪信号 - 只做顺势回调"""
         score = 0
         reasons = []
         
@@ -140,33 +135,31 @@ class ComboStrategy:
         rsi = ind.get('rsi', 50)
         macd_hist = ind.get('macd_hist', 0)
         bb_pband = ind.get('bb_pband', 0.5)
-        di_plus = ind.get('di_plus', 0)
-        di_minus = ind.get('di_minus', 0)
         
-        # 多头趋势（更严格：需要DI确认）
-        if ema9 > ema21 and ma20 > ma50 and price > ma20 and di_plus > di_minus:
+        # 多头趋势
+        if ema9 > ema21 and ma20 > ma50 and price > ma20:
             score += 30
             reasons.append("🟢 多头趋势")
-            # 回调入场（收窄区间）
-            if 30 <= rsi <= 45:
+            # 回调入场
+            if 35 <= rsi <= 50:
                 score += 30
                 reasons.append(f"RSI回调至{rsi:.0f}")
-            if 0.25 <= bb_pband <= 0.5:
+            if 0.3 <= bb_pband <= 0.6:
                 score += 20
-                reasons.append("回调至布林中下轨")
+                reasons.append("回调至布林中轨")
             if macd_hist > 0:
                 score += 10
         
         # 空头趋势
-        elif ema9 < ema21 and ma20 < ma50 and price < ma20 and di_minus > di_plus:
+        elif ema9 < ema21 and ma20 < ma50 and price < ma20:
             score -= 30
             reasons.append("🔴 空头趋势")
-            if 55 <= rsi <= 70:
+            if 50 <= rsi <= 65:
                 score -= 30
                 reasons.append(f"RSI反弹至{rsi:.0f}")
-            if 0.5 <= bb_pband <= 0.75:
+            if 0.4 <= bb_pband <= 0.7:
                 score -= 20
-                reasons.append("反弹至布林中上轨")
+                reasons.append("反弹至布林中轨")
             if macd_hist < 0:
                 score -= 10
         
@@ -181,14 +174,14 @@ class ComboStrategy:
         bb_pband = ind.get('bb_pband', 0.5)
         k = ind.get('stoch_k', 50)
         
-        # 超卖（更严格）
+        # 超卖
         if rsi < self.rsi_oversold:
             score += 35
             reasons.append(f"RSI={rsi:.0f}极度超卖")
-            if bb_pband < 0.05:
+            if bb_pband < 0.1:
                 score += 25
                 reasons.append("触及布林下轨")
-            if k < 15:
+            if k < 20:
                 score += 20
                 reasons.append("KD超卖")
         
@@ -196,22 +189,22 @@ class ComboStrategy:
         elif rsi > self.rsi_overbought:
             score -= 35
             reasons.append(f"RSI={rsi:.0f}极度超买")
-            if bb_pband > 0.95:
+            if bb_pband > 0.9:
                 score -= 25
                 reasons.append("触及布林上轨")
-            if k > 85:
+            if k > 80:
                 score -= 20
                 reasons.append("KD超买")
         
         return {'valid': abs(score) >= 50, 'score': score, 'reasons': reasons}
     
     def _get_signal_type(self, score: float) -> SignalType:
-        if score >= 70:
+        if score >= 60:
             return SignalType.STRONG_BUY
-        elif score >= 60:
+        elif score >= 50:
             return SignalType.BUY
-        elif score <= -70:
-            return SignalType.STRONG_SELL
         elif score <= -60:
+            return SignalType.STRONG_SELL
+        elif score <= -50:
             return SignalType.SELL
         return SignalType.NEUTRAL
